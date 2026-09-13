@@ -1791,6 +1791,7 @@ INTERVAL="@@INTERVAL@@"
 PORT="@@PORT@@"
 SELF="@@SELF@@"
 LOG="@@WDLOG@@"
+RESTART_EVERY_H="@@RESTARTH@@"
 export TMUX_TMPDIR="@@TMUXTMPDIR@@"
 mkdir -p "@@TMUXTMPDIR@@" 2>/dev/null || true
 
@@ -1814,8 +1815,20 @@ alive() {
 }
 
 printf '%s watchdog старт, интервал %sс\n' "$(stamp)" "$INTERVAL" >> "$LOG"
+START_TS="$(date +%s)"
 while true; do
 	sleep "$INTERVAL"
+	now="$(date +%s)"
+	# плановый перезапуск каждые RESTART_EVERY_H часов (0 = выкл)
+	case "$RESTART_EVERY_H" in ''|*[!0-9]*) RESTART_EVERY_H=0 ;; esac
+	if [ "$RESTART_EVERY_H" -gt 0 ] && [ $(( now - START_TS )) -ge $(( RESTART_EVERY_H * 3600 )) ]; then
+		printf '%s плановый перезапуск (каждые %s ч)\n' "$(stamp)" "$RESTART_EVERY_H" >> "$LOG"
+		bash "$SELF" restart >> "$LOG" 2>&1 || true
+		START_TS="$(date +%s)"
+		FAILS=0
+		NOTIFIED=0
+		continue
+	fi
 	if ! alive; then
 		printf '%s порт %s не отвечает -> перезапуск\n' "$(stamp)" "$PORT" >> "$LOG"
 		bash "$SELF" start >> "$LOG" 2>&1 || true
@@ -2430,7 +2443,7 @@ readonly CONFIG_ITEMS=(
 	"PROXY protocol v1|warn|PROXY_PROTOCOL|Нужно только за nginx/haproxy. На телефоне сломает подключения."
 	"Wake-lock при старте|bool|WAKE_LOCK|Без него Android может усыпить прокси"
 	"Копировать ссылку в буфер|bool|CLIPBOARD_COPY|Нужен Termux:API; иначе просто не скопируется"
-	"Плановый перезапуск, ч|uint:0:168|RESTART_EVERY_H|Пока не работает — зарезервировано"
+	"Плановый перезапуск, ч|uint:0:168|RESTART_EVERY_H|Перезапуск каждые N часов, 0 = выкл (применится после рестарта watchdog)"
 	"Интервал проверки watchdog, с|uint:15:3600|WATCHDOG_INTERVAL|Как часто watchdog проверяет порт"
 	"Сгенерировать Secret|act:regen_secret||"
 	"Открыть конфиг в редакторе|act:edit_config_file||"
