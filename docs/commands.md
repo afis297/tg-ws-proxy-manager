@@ -34,26 +34,84 @@
 | 19 | Батарея и фон (настройки + памятка MIUI) | `battery-settings`, `miui-help` |
 | 0 | Выход | — |
 
-## Все CLI-команды по группам
+## Все CLI-команды (полный справочник)
 
-Установка: `install`, `update`, `self-update` (сам менеджер: `git pull` в клоне, иначе скачивание raw с GitHub с проверкой `bash -n`), `reinstall`, `uninstall`, `storage`.
-Запуск: `start`, `stop`, `restart`, `status`, `logs`, `attach`, `force-kill`, `clear-logs`.
-Клиенты: `link` (= `links`), `qr`, `conns`, `stats`.
-Сеть: `lan-on`, `lan-toggle`, `lan-off`, `iface`, `detect-ip`.
-Конфиг: `config`, `edit`, `show-command`, `gen-secret`, `new-secret`,
-`backup`, `restore`, `profile-list`, `profile-save <имя>`, `profile-use <имя>`.
-Автозапуск: `autostart-on`, `autostart-off`, `autostart-check`,
-`autostart-job-on`, `autostart-job-off`, `watchdog-on`, `watchdog-off`,
-`watchdog-status`, `battery-settings`, `miui-help`, `alias`, `alias-remove`.
-Тесты: `test` (все), `test-local`, `test-lan`, `test-dc`, `test-ws`,
-`test-cf`, `test-domains`, `doctor`, `py-help`, `check-update`.
+### Установка
+
+- `install` — пакеты, клон ядра, `cryptography`, secret, доступ к памяти, алиас `tgws`. В конце предлагает батарею и планировщик. Интерактивная.
+- `update` — сначала показывает, есть ли обновления (`check-update`), спрашивает подтверждение, стопает прокси, подтягивает репу, поднимает обратно если работал.
+- `self-update` — обновляет сам менеджер: `git pull` в клоне, иначе скачивание raw с GitHub с проверкой `bash -n`. После — перезапустить меню.
+- `reinstall` — сносит `APP_DIR` (с защитой от опасных путей) и клонирует заново. Конфиг и secret сохраняются.
+- `uninstall` — удаляет проект; отдельно спрашивает, тереть ли конфиг и логи.
+- `storage` — `termux-setup-storage`. Молча выходит, если доступ уже есть.
+
+### Запуск
+
+- `start` — валидация конфига, чистка мёртвого сокета tmux, убийство висяков на порту, новая сессия, pane-died хук, ожидание подъёма, wake-lock, ссылки.
+- `stop` — ставит `STOP_MARK` (чтобы pane-died хук молчал), гасит сессию, добивает висяки, снимает wake-lock.
+- `restart` — `stop`, пауза, `start`.
+- `status` — состояние, listen, режим, интерфейс/IP, secret, DC, CF, Fake TLS, пул, python, каталог, wake-lock, автозапуск, лог. Если запущен — плюс ссылки.
+- `logs` — `tail -n 60 -f`. После выхода (Ctrl+C) предлагает очистить лог.
+- `attach` — вход в окно tmux с защитой: любая клавиша/тап = выход, прокси жив. Раскладка клавиш восстанавливается даже при обрыве.
+- `force-kill` — ищет процессы ядра по двум паттернам, шлёт `TERM`, через 2 с — `KILL -9` выжившим. Себя не трогает.
+- `clear-logs` — обнуляет `proxy.log` и ротированные копии.
+
+### Клиенты
+
+- `link` (= `links`) — ссылка для телефона + для сети + параметры вручную. В `local`-режиме предупреждает. Копирует в буфер по настройкам (в `lan` — LAN-ссылку, в `local` — `127.0.0.1`).
+- `qr` — то же + QR-код: сначала `qrencode`, запасной вариант — python-модуль `qrcode` через pip.
+- `conns` — живые соединения (`/proc/net/tcp`, иначе `ss`/`netstat`). Если Android прячет таблицу — активность клиентов по логу и tmux-буферу (нужен `VERBOSE=1`) + соседи по ARP.
+- `stats` — аптайм tmux-сессии, размер лога, счётчики ошибок/варнингов/CF-fallback, последние ошибки, состояние watchdog.
+
+### Сеть
+
+- `lan-on` — предупреждает про `0.0.0.0` в недоверенных сетях, спрашивает, включает раздачу, перезапускает/показывает ссылки.
+- `lan-toggle` — переключатель вкл/выкл.
+- `lan-off` — только `127.0.0.1`, перезапуск если запущен.
+- `iface` — интерактивный выбор интерфейса с подсветкой (точка доступа/Wi-Fi/мобильный/VPN). `0` — автоопределение.
+- `detect-ip` — печатает определённый IP и перевод строки.
+
+### Конфиг
+
+- `config` — меню настроек (режим, порт, secret, DC, CF-домены, лимиты, флаги). Ввод значений: Enter — не менять.
+- `edit` — конфиг в редакторе (`$EDITOR`, иначе nano/vim/vi/micro).
+- `show-command` — итоговая команда `python -m proxy.tg_ws_proxy ...` для ручного пуска и отладки.
+- `gen-secret` — молча генерирует и записывает новый secret.
+- `new-secret` — с предупреждением (старые ссылки умрут) и перезапуском.
+- `backup` — копия конфига в Загрузки с датой в имени. Внутри secret — не светить.
+- `restore` — выбор из бэкапов и профилей; текущий конфиг страхуется в `.before-restore.conf`; рестарт если запущен.
+- `profile-list` / `profile-save <имя>` / `profile-use <имя>` — именованные копии конфига (`[a-zA-Z0-9_-]`). Применение перезапускает прокси.
+
+### Автозапуск
+
+- `autostart-on` / `autostart-off` — boot-скрипт Termux:Boot вкл/выкл. Подробности в [autostart](autostart.md).
+- `autostart-check` — скрипт на месте/права/синтаксис, приложение Termux:Boot, задача планировщика, аптайм телефона, хвост `boot.log`, состояние прокси.
+- `autostart-job-on` / `autostart-job-off` — резерв через планировщик Android (id `1443`, ~15 мин). Подробнее в [autostart](autostart.md).
+- `watchdog-on` / `watchdog-off` / `watchdog-status` — фоновая проверка порта и автоподъём.
+- `battery-settings` — открывает настройки батареи Termux (исключить из оптимизации).
+- `miui-help` — памятка MIUI 12.5 текстом.
+- `alias` — симлинк `$PREFIX/bin/tgws` + чистка старого `alias tgws=` из `.bashrc`.
+- `alias-remove` — убрать команду `tgws`.
+
+### Тесты
+
+- `test` — всё подряд: local, lan, dc, ws, cf.
+- `test-local` / `test-lan` — TCP-доступность порта локально / по LAN IP.
+- `test-dc` — `IP:443` каждого DC из правил.
+- `test-ws` — `https://kwsN.web.telegram.org` для каждого DC.
+- `test-cf` — `cloudflare.com` + свои и Worker-домены.
+- `test-domains` — автотест всех доменов из конфига; если есть и живые и мёртвые — предлагает оставить только живые.
+- `doctor` — полная диагностика: бинарники, проект, ядро, venv, Python ≥ 3.8, `cryptography`, wake-lock, планировщик, secret, сессия, порт, `~/storage`, ревизия, интерфейсы.
+- `py-help` — `--help` самого ядра (сверка `EXTRA_ARGS`).
+- `check-update` — `fetch origin --tags`, на сколько коммитов отстали, список коммитов, бейдж в меню.
+- `help` (`-h`, `--help`) — справка по группам.
 
 ## Подменю настроек (пункт 9)
 
 Порядок = порядок в меню: режим доступа, порт, secret, интерфейс/IP,
 правила DC, CF fallback, свои CF-домены, Worker-домены, verbose,
 буфер, пул WS, размер/копии лога, venv, доп. аргументы, Fake TLS,
-тестовые ДЦ, PROXY protocol, wake-lock, плановый перезапуск,
+тестовые ДЦ, PROXY protocol, wake-lock, копирование в буфер, плановый перезапуск,
 интервал watchdog, генерация secret, редактор конфига, команда запуска,
 `--help` ядра. Значения всех пунктов — в [конфиге](config.md).
 
