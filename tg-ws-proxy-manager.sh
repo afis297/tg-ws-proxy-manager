@@ -2430,7 +2430,7 @@ readonly CONFIG_ITEMS=(
 	"PROXY protocol v1|warn|PROXY_PROTOCOL|Нужно только за nginx/haproxy. На телефоне сломает подключения."
 	"Wake-lock при старте|bool|WAKE_LOCK|Без него Android может усыпить прокси"
 	"Копировать ссылку в буфер|bool|CLIPBOARD_COPY|Нужен Termux:API; иначе просто не скопируется"
-	"Плановый перезапуск, ч|uint:0:168|RESTART_EVERY_H|Перезапуск каждые N часов, 0 = выкл (нужен включённый watchdog)"
+	"Плановый перезапуск, ч|uint:0:168|RESTART_EVERY_H|Пока не работает — зарезервировано"
 	"Интервал проверки watchdog, с|uint:15:3600|WATCHDOG_INTERVAL|Как часто watchdog проверяет порт"
 	"Сгенерировать Secret|act:regen_secret||"
 	"Открыть конфиг в редакторе|act:edit_config_file||"
