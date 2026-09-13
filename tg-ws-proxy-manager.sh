@@ -327,7 +327,7 @@ ensure_storage() {
 # Единственный источник дефолтов: новый конфиг + добивка старых. Все ключи — docs/config.md.
 declare -A CONFIG_DEFAULTS=(
 	[REPO_URL]="https://github.com/Flowseal/tg-ws-proxy.git"
-		[REPO_BRANCH]="v1.10.0" # Фиксируем версию для защиты от supply chain attack
+		[REPO_BRANCH]="v1.10.2" # Фиксируем версию для защиты от supply chain attack
 	[USE_VENV]="0"
 	[BIND_MODE]="local"
 	[PORT]="1443"
@@ -486,6 +486,10 @@ load_config() {
 	for key in "${!CONFIG_DEFAULTS[@]}"; do
 		[ -n "${!key+x}" ] || printf -v "$key" '%s' "${CONFIG_DEFAULTS[$key]}"
 	done
+	# одноразовая миграция пина ядра на новый благословлённый тег
+	if [ "${REPO_BRANCH:-}" = "v1.10.0" ]; then
+		set_config_value REPO_BRANCH "${CONFIG_DEFAULTS[REPO_BRANCH]}"
+	fi
 	APP_DIR="${APP_DIR:-$HOME/tg-ws-proxy}"
 
 	# Совместимость со старым конфигом (одиночные домены)
@@ -1014,12 +1018,12 @@ clone_or_pull() {
 		if [ -n "$(git -C "$APP_DIR" status --porcelain)" ]; then
 			warn "Есть локальные изменения в $APP_DIR — git pull пропущен"
 		else
-			if git -C "$APP_DIR" checkout "${REPO_BRANCH:-v1.10.0}"; then
+			if git -C "$APP_DIR" checkout "${REPO_BRANCH:-v1.10.2}"; then
 				ok "Обновлено до $(git -C "$APP_DIR" rev-parse --short HEAD)"
 			else
 				warn "Быстрое обновление невозможно (force-push или расхождение веток)"
-				if ask "Сбросить локальную копию к ${REPO_BRANCH:-v1.10.0}?"; then
-					git -C "$APP_DIR" reset --hard "${REPO_BRANCH:-v1.10.0}" || die "reset не удался"
+				if ask "Сбросить локальную копию к ${REPO_BRANCH:-v1.10.2}?"; then
+					git -C "$APP_DIR" reset --hard "${REPO_BRANCH:-v1.10.2}" || die "reset не удался"
 					ok "Сброшено до $(git -C "$APP_DIR" rev-parse --short HEAD)"
 				else
 					die "Обновление отменено"
@@ -1030,7 +1034,7 @@ clone_or_pull() {
 		msg "Клонирую $REPO_URL ..."
 		mkdir -p "$(dirname "$APP_DIR")"
 		git clone "$REPO_URL" "$APP_DIR" || die "git clone не удался"
-		git -C "$APP_DIR" checkout "${REPO_BRANCH:-v1.10.0}" || die "git checkout не удался"
+		git -C "$APP_DIR" checkout "${REPO_BRANCH:-v1.10.2}" || die "git checkout не удался"
 		ok "Склонировано в $APP_DIR"
 	fi
 	printf '0\n' > "${UPDATE_STATE:-/dev/null}" 2>/dev/null || true
@@ -1056,7 +1060,7 @@ setup_python() {
 check_entrypoint() {
 	[ -s "$APP_DIR/proxy/tg_ws_proxy.py" ] && return 0
 	err "Не найден $APP_DIR/proxy/tg_ws_proxy.py"
-	warn "Запусти установку (пункт 1) или переустановку (пункт 16)"
+	warn "Запусти установку (пункт 1) или переустановку (пункт 13)"
 	return 1
 }
 
@@ -1073,6 +1077,8 @@ safe_app_dir() {
 cmd_install() {
 	check_termux; load_config
 	install_deps; clone_or_pull; setup_python; ensure_secret
+	ensure_storage
+	cmd_alias_install || true
 	check_entrypoint || true
 	hr; ok "Установка завершена"; cmd_links
 	hr
@@ -1087,12 +1093,15 @@ cmd_install() {
 			cmd_autostart_job_on || true
 		fi
 	else
-		msg "Резервный автозапуск через планировщик Android: pkg install termux-api, потом пункт 19 в меню"
+		msg "Резервный автозапуск через планировщик Android: pkg install termux-api, потом пункт 15 в меню"
 	fi
 }
 
 cmd_update() {
 	check_termux; load_config
+	check_update || true
+	hr
+	ask "Обновить проект?" || { msg "Отменено"; return 0; }
 	local was=0
 	is_running && { was=1; stop_proxy; }
 	clone_or_pull; setup_python
@@ -1269,6 +1278,7 @@ cmd_logs() {
 	[ -f "$LOG_FILE" ] || die "Лог пуст: прокси ещё не запускался"
 	msg "Ctrl+C — выход в меню"
 	tail -n 60 -f "$LOG_FILE" || true
+	ask "Очистить лог?" && cmd_clear_logs || true
 }
 
 cmd_clear_logs() {
@@ -1347,11 +1357,16 @@ cmd_links() {
 			"$C_DIM" "$C_RESET" "$lan" "$PORT" "$(link_secret)"
 		[ -n "${FAKE_TLS_DOMAIN:-}" ] && printf '%s  Режим: Fake TLS, SNI %s%s\n' "$C_DIM" "$FAKE_TLS_DOMAIN" "$C_RESET"
 	else
-		warn "IP не определён — выбери интерфейс (пункт 13)"
+		warn "IP не определён — выбери интерфейс в настройках (пункт 9)"
 	fi
 
-	[ "$BIND_MODE" != "lan" ] && { printf '\n'; warn "Режим local: с других устройств не сработает (пункт 10)"; }
-	copy_clip "$(proxy_link "${lan:-127.0.0.1}")"
+	[ "$BIND_MODE" != "lan" ] && { printf '\n'; warn "Режим local: с других устройств не сработает (режим — в настройках, пункт 9)"; }
+	# в local-режиме LAN-ссылка бесполезна — копируем локальную
+	if [ "$BIND_MODE" = "lan" ] && [ -n "${lan:-}" ]; then
+		copy_clip "$(proxy_link "$lan")"
+	else
+		copy_clip "$(proxy_link 127.0.0.1)"
+	fi
 	hr
 }
 
@@ -1387,8 +1402,8 @@ cmd_qr() {
 	load_config; ensure_secret
 	local lan link
 	lan="$(detect_lan_ip)"
-	[ -n "$lan" ] || { err "IP не определён — выбери интерфейс (пункт 13)"; return 1; }
-	[ "$BIND_MODE" = "lan" ] || warn "Режим local: с других устройств не сработает (пункт 10)"
+	[ -n "$lan" ] || { err "IP не определён — выбери интерфейс в настройках (пункт 9)"; return 1; }
+	[ "$BIND_MODE" = "lan" ] || warn "Режим local: с других устройств не сработает (режим — в настройках, пункт 9)"
 
 	link="$(proxy_link "$lan")"
 	hr
@@ -1397,6 +1412,22 @@ cmd_qr() {
 	hr
 	msg "Наведи камеру другого телефона на код"
 	copy_clip "$link"
+}
+
+# Ссылки + QR одним пунктом меню (без двойного копирования в буфер)
+cmd_links_qr() {
+	cmd_links || return 1
+	ask "Показать QR-код?" || return 0
+	load_config
+	local lan link
+	lan="$(detect_lan_ip)"
+	[ -n "$lan" ] || { err "IP не определён — выбери интерфейс в настройках (пункт 9)"; return 1; }
+	link="$(proxy_link "$lan")"
+	hr
+	printf '%s\n\n' "$link"
+	qr_render "$link" || return 1
+	hr
+	msg "Наведи камеру другого телефона на код"
 }
 
 # Автозапуск после перезагрузки телефона (требуется Termux:Boot)
@@ -1819,12 +1850,12 @@ check_update() {
 		git -C "$APP_DIR" fetch --quiet origin --tags 2>/dev/null \
 		|| { warn "Не связался с origin — проверь интернет"; return 1; }
 	local behind
-	behind="$(git -C "$APP_DIR" rev-list --count "HEAD..${REPO_BRANCH:-v1.10.0}" 2>/dev/null || echo 0)"
+	behind="$(git -C "$APP_DIR" rev-list --count "HEAD..${REPO_BRANCH:-v1.10.2}" 2>/dev/null || echo 0)"
 	printf '%s\n' "${behind:-0}" > "$UPDATE_STATE" 2>/dev/null || true
 	if [ "${behind:-0}" -gt 0 ]; then
 		warn "Есть обновление: отстаём на $behind коммит(ов) — пункт 2"
 		hr
-		git -C "$APP_DIR" log --oneline -n 8 "HEAD..${REPO_BRANCH:-v1.10.0}" 2>/dev/null || true
+		git -C "$APP_DIR" log --oneline -n 8 "HEAD..${REPO_BRANCH:-v1.10.2}" 2>/dev/null || true
 		hr
 	else
 		ok "Установлена последняя версия"
@@ -1933,6 +1964,8 @@ EOF
 		fi
 		printf ' s) Сохранить текущий конфиг как профиль\n'
 		printf ' d) Удалить профиль\n'
+		printf ' b) Бэкап конфига в Загрузки\n'
+		printf ' r) Восстановить конфиг из копии\n'
 		printf ' 1p) Пресет home    (раздача через wlan0)\n'
 		printf ' 2p) Пресет hotspot (раздача через ap0)\n'
 		printf ' 3p) Пресет local   (только телефон)\n'
@@ -1949,6 +1982,8 @@ EOF
 				1p) profile_preset home ;;
 				2p) profile_preset hotspot ;;
 				3p) profile_preset local ;;
+				b) cmd_backup ;;
+				r) cmd_restore ;;
 				*)
 					if is_uint "$ch" && [ "$ch" -ge 1 ] && [ "$ch" -le "${#names[@]}" ]; then
 						profile_apply "${names[$((ch-1))]}"
@@ -1969,13 +2004,13 @@ backup_dir() {
 
 cmd_backup() {
 	load_config
+	ensure_storage
 	local dst
 	dst="$(backup_dir)/tg-ws-proxy-backup-$(date '+%Y%m%d-%H%M').conf"
 	cp "$CONFIG_FILE" "$dst" || { err "Не смог скопировать в $dst"; return 1; }
 	chmod600 "$dst"
 	ok "Бэкап: $dst"
 	warn "В файле лежит secret — не выкладывай его в общий доступ"
-	[ -d "$HOME/storage/downloads" ] || msg "Для сохранения в Загрузки включи доступ к памяти (пункт 18)"
 	return 0
 }
 
@@ -2146,6 +2181,12 @@ cmd_stats() {
 	hr
 }
 
+# Мониторинг одним пунктом меню: кто подключён + статистика
+cmd_monitoring() {
+	cmd_conns
+	cmd_stats
+}
+
 # ============================================================
 #  Тесты
 # ============================================================
@@ -2253,8 +2294,8 @@ cmd_doctor() {
 	fi
 	"$py" -c "import cryptography" 2>/dev/null && ok "cryptography импортируется" || err "cryptography НЕ импортируется"
 	command -v termux-wake-lock >/dev/null 2>&1 && ok "termux-wake-lock есть" || warn "Нет termux-wake-lock (pkg install termux-tools)"
-	msg "Оптимизацию батареи для Termux Android не даёт проверить программно — открой пункт 30 и проверь глазами"
-	[ -f "$JOB_MARK" ] && ok "Резервный автозапуск через планировщик Android включён" || warn "Резервный автозапуск через планировщик выключен (пункт 19)"
+	msg "Оптимизацию батареи для Termux Android не даёт проверить программно — открой пункт 19 и проверь глазами"
+	[ -f "$JOB_MARK" ] && ok "Резервный автозапуск через планировщик Android включён" || warn "Резервный автозапуск через планировщик выключен (пункт 15)"
 	command -v qrencode >/dev/null 2>&1 && ok "qrencode есть" || msg "qrencode не стоит (поставится при первом QR)"
 	[ -f "$BOOT_SCRIPT" ] && ok "Автозапуск включён" || msg "Автозапуск выключен"
 
@@ -2294,7 +2335,8 @@ cmd_uninstall() {
 # ============================================================
 
 ask_value() {
-	printf '%s\nТекущее: %s%s%s\nНовое (Enter — не менять): ' "$1" "$C_YELLOW" "${2:-<пусто>}" "$C_RESET"
+	# приглашение — в stderr: stdout забирает вызывающий через $(...) только под ввод
+	printf '%s\nТекущее: %s%s%s\nНовое (Enter — не менять): ' "$1" "$C_YELLOW" "${2:-<пусто>}" "$C_RESET" >&2
 	local v; read -r v || true; printf '%s' "${v:-}"
 }
 
@@ -2362,6 +2404,7 @@ readonly CONFIG_ITEMS=(
 	"Тестовые ДЦ Telegram|warn|FORCE_TEST_DC|Тестовые ДЦ — только для отладки. Обычный Telegram через них НЕ работает."
 	"PROXY protocol v1|warn|PROXY_PROTOCOL|Нужно только за nginx/haproxy. На телефоне сломает подключения."
 	"Wake-lock при старте|bool|WAKE_LOCK|Без него Android может усыпить прокси"
+	"Копировать ссылку в буфер|bool|CLIPBOARD_COPY|Нужен Termux:API; иначе просто не скопируется"
 	"Плановый перезапуск, ч|uint:0:168|RESTART_EVERY_H|Перезапуск каждые N часов, 0 = выкл (нужен включённый watchdog)"
 	"Интервал проверки watchdog, с|uint:15:3600|WATCHDOG_INTERVAL|Как часто watchdog проверяет порт"
 	"Сгенерировать Secret|act:regen_secret||"
@@ -2568,45 +2611,33 @@ main_menu() {
 			"$([ "$BIND_MODE" = lan ] && echo 'раздача в сеть' || echo 'только телефон')" "${NET_IFACE:-авто}"
 
 		printf '  1) Установить\n  2) Обновить\n  3) Запустить\n  4) Остановить\n  5) Перезапустить\n'
-		printf '  6) Статус\n  7) Логи\n  8) Подключиться к tmux\n  9) Настройки\n 10) Раздача и ссылки (%s)\n' "$([ "$BIND_MODE" = lan ] && printf '%sвкл%s' "$C_GREEN" "$C_RESET" || echo выкл)"
-		printf ' 11) Выбрать интерфейс (wlan0/ap0)\n'
-		printf ' 12) Тесты\n 13) Диагностика\n 14) Переустановить (secret сохранится)\n'
-		printf ' 15) Прибить зависшие процессы\n 16) Доступ к памяти телефона\n 17) Удалить\n'
-		printf ' 18) QR-код для раздачи\n'
-		printf ' 19) Автозапуск при загрузке: %s\n' "$(autostart_state)"
-		printf ' 20) Очистить лог\n'
-		printf ' 21) Кто подключён\n 22) Статистика и аптайм\n'
-		printf ' 23) Watchdog (автоперезапуск): %s\n' "$(watchdog_running && echo вкл || echo выкл)"
-		printf ' 24) Профили\n 25) Бэкап конфига\n 26) Восстановить конфиг\n'
-		printf ' 27) Проверить обновления\n 28) Сменить secret\n 29) Алиас tgws\n'
-			printf ' 30) Настройки батареи (важно для фона!)\n'
-			printf ' 31) Памятка для MIUI 12.5 (автозапуск и замок)\n'
+		printf '  6) Статус\n  7) Логи\n  8) Подключиться к tmux\n  9) Настройки\n 10) Ссылки и QR\n'
+		printf ' 11) Тесты\n 12) Диагностика\n 13) Переустановить (secret сохранится)\n'
+		printf ' 14) Удалить\n'
+		printf ' 15) Автозапуск при загрузке: %s\n' "$(autostart_state)"
+		printf ' 16) Мониторинг (кто подключён + статистика)\n'
+		printf ' 17) Watchdog (автоперезапуск): %s\n' "$(watchdog_running && echo вкл || echo выкл)"
+		printf ' 18) Профили и бэкапы\n'
+		printf ' 19) Батарея и фон (важно!)\n'
 			printf '  0) Выход\n\nВыбор: '
 
 		local ch; read_choice ch || { menu_guard_off; ok "Выход"; return 0; }; printf '\n'
 		case "$ch" in
 			0) menu_guard_off; ok "Выход"; exit 0 ;;
 			9)  config_menu; menu_guard_on; continue ;;
-			12) tests_menu;  menu_guard_on; continue ;;
+			11) tests_menu;  menu_guard_on; continue ;;
 			1)  run_item cmd_install ;;   2)  run_item cmd_update ;;
 			3)  run_item start_proxy ;;   4)  run_item stop_proxy ;;
 			5)  run_item cmd_restart ;;   6)  run_item cmd_status ;;
 			7)  run_item cmd_logs ;;      8)  run_item cmd_attach ;;
-			10) run_item cmd_lan_toggle ;;
-			11) run_item choose_interface ;;
-			13) run_item cmd_doctor ;;    14) run_item cmd_reinstall ;;
-			15) run_item force_kill ;;    16) run_item ensure_storage ;;
-			17) run_item cmd_uninstall ;;
-			18) run_item cmd_qr ;;
-			19) autostart_menu; menu_guard_on; continue ;;
-			20) run_item cmd_clear_logs ;;  21) run_item cmd_conns ;;
-			22) run_item cmd_stats ;;       23) run_item watchdog_toggle ;;
-			24) profile_menu; menu_guard_on; continue ;;
-			25) run_item cmd_backup ;;      26) run_item cmd_restore ;;
-			27) run_item check_update ;;    28) run_item cmd_change_secret ;;
-			29) run_item cmd_alias_install ;;
-			30) run_item check_battery_optimization ;;
-			31) run_item show_miui_help ;;
+			10) run_item cmd_links_qr ;;
+			12) run_item cmd_doctor ;;    13) run_item cmd_reinstall ;;
+			14) run_item cmd_uninstall ;;
+			15) autostart_menu; menu_guard_on; continue ;;
+			16) run_item cmd_monitoring ;;
+			17) run_item watchdog_toggle ;;
+			18) profile_menu; menu_guard_on; continue ;;
+			19) run_item cmd_battery_all ;;
 			*) err "Неверный пункт" ;;
 		esac
 		printf '\nEnter — в меню...'; read -r _ || true
@@ -2635,6 +2666,13 @@ cmd_watchdog_off()    { watchdog_stop; }
 cmd_watchdog_status() { load_config; if watchdog_running; then ok "Watchdog активен"; else msg "Watchdog выключен"; fi; }
 cmd_battery_settings()   { check_battery_optimization; }
 cmd_miui_help()          { show_miui_help; }
+
+# Батарея одним пунктом меню: настройки + памятка MIUI
+cmd_battery_all() {
+	check_battery_optimization
+	hr
+	show_miui_help
+}
 cmd_profile_list()    { load_config; local n; n="$(profile_names)"; [ -n "$n" ] && printf '%s\n' "$n" || msg "Профилей пока нет (создать: profile-save <имя>)"; return 0; }
 cmd_profile_save()    { load_config; profile_save "${1:-}"; }
 cmd_profile_use()     { load_config; profile_apply "${1:-}"; }
