@@ -2385,6 +2385,40 @@ cmd_uninstall() {
 	fi
 }
 
+# Полная очистка: останавливает всё, снимает автозапуск, удаляет ядро,
+# конфиги, алиас и сам менеджер. Пакеты Termux (git/python/tmux) не трогает.
+cmd_purge() {
+	load_config
+	warn "Будет удалено ВСЁ:"
+	printf '  %s\n' "$APP_DIR" "$CONFIG_DIR" "$STATE_DIR" "$BOOT_SCRIPT" "$PREFIX/bin/tgws" "$(self_path)"
+	warn "Прокси и watchdog остановятся, автозапуск снимется."
+	ask "Продолжить?" || { msg "Отменено"; return 0; }
+	ask "Точно? Отмены не будет." || { msg "Отменено"; return 0; }
+
+	stop_proxy
+	if watchdog_running; then tmux kill-session -t "$WATCHDOG_SESSION" 2>/dev/null || true; fi
+	cmd_autostart_off
+	cmd_autostart_job_off || true
+	safe_app_dir
+	rm -rf "$APP_DIR" "$CONFIG_DIR" "$STATE_DIR"
+	cmd_alias_remove
+	ok "Ядро, конфиги и алиас удалены"
+
+	local self dir
+	self="$(self_path)"
+	dir="$(dirname "$self")"
+	if [ "$dir" != "$HOME" ] && [ "$dir" != "/" ] && [ -f "$dir/tg-ws-proxy-manager.sh" ]; then
+		if ask "Удалить и сам менеджер ($self)?"; then
+			if [ -d "$dir/.git" ] && ask "Удалить весь каталог $dir?"; then
+				rm -rf "$dir"
+			else
+				rm -f "$self"
+			fi
+			ok "Менеджер удалён. Пока!"
+		fi
+	fi
+}
+
 # ============================================================
 #  Меню настроек
 # ============================================================
@@ -2738,6 +2772,7 @@ readonly COMMANDS=(
 	"self-update|cmd_self_update|Установка|обновить сам менеджер"
 	"reinstall|cmd_reinstall|Установка|переустановить (secret сохраняется)"
 	"uninstall|cmd_uninstall|Установка|удалить проект"
+	"purge|cmd_purge|Установка|полное удаление: ядро, конфиги, автозапуск, менеджер"
 	"storage|cmd_storage|Установка|дать доступ к памяти телефона"
 
 	"start|cmd_start|Запуск|запустить прокси в tmux"
