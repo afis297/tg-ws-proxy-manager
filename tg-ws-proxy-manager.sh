@@ -1116,10 +1116,27 @@ cmd_self_update() {
 	dir="$(dirname "$self")"
 	if [ -d "$dir/.git" ]; then
 		msg "Обновляю менеджер из git..."
-		git -C "$dir" pull --ff-only || { err "git pull не удался (есть локальные правки?)"; return 1; }
-		chmod +x "$self" 2>/dev/null || true
-		ok "Менеджер обновлён — перезапусти меню"
-		return 0
+		if git -C "$dir" pull --ff-only 2>/dev/null; then
+			chmod +x "$self" 2>/dev/null || true
+			ok "Менеджер обновлён — перезапусти меню"
+			return 0
+		fi
+		# pull не взлетел — обычно локальные правки в файле (например, копировали поверх клона)
+		if [ -n "$(git -C "$dir" status --porcelain -- tg-ws-proxy-manager.sh 2>/dev/null)" ]; then
+			warn "Локальные правки в файле блокируют обновление."
+			if ask "Сбросить их и взять версию с GitHub? (настройки лежат вне репозитория, не пострадают)"; then
+				git -C "$dir" fetch origin 2>/dev/null || true
+				up="$(git -C "$dir" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo origin/main)"
+				git -C "$dir" reset --hard "$up" || { err "reset не удался"; return 1; }
+				chmod +x "$self" 2>/dev/null || true
+				ok "Менеджер обновлён — перезапусти меню"
+				return 0
+			fi
+			msg "Отменено — локальные правки оставлены"
+			return 0
+		fi
+		err "git pull не удался"
+		return 1
 	fi
 	command -v curl >/dev/null 2>&1 || die "Нужен curl (pkg install curl)"
 	url="https://raw.githubusercontent.com/afis297/tg-ws-proxy-manager/main/tg-ws-proxy-manager.sh"
