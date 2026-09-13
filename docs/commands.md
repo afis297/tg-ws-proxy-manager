@@ -36,7 +36,7 @@
 
 ## Все CLI-команды по группам
 
-Установка: `install`, `update`, `reinstall`, `uninstall`, `storage`.
+Установка: `install`, `update`, `self-update` (сам менеджер: `git pull` в клоне, иначе скачивание raw с GitHub с проверкой `bash -n`), `reinstall`, `uninstall`, `storage`.
 Запуск: `start`, `stop`, `restart`, `status`, `logs`, `attach`, `force-kill`, `clear-logs`.
 Клиенты: `link` (= `links`), `qr`, `conns`, `stats`.
 Сеть: `lan-on`, `lan-toggle`, `lan-off`, `iface`, `detect-ip`.

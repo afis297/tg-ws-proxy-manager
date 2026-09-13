@@ -1109,6 +1109,31 @@ cmd_update() {
 	ok "Обновление завершено"
 }
 
+# Обновление самого менеджера (не ядра): git pull в клоне или скачивание raw-файла
+cmd_self_update() {
+	local self dir url tmp
+	self="$(self_path)"
+	dir="$(dirname "$self")"
+	if [ -d "$dir/.git" ]; then
+		msg "Обновляю менеджер из git..."
+		git -C "$dir" pull --ff-only || { err "git pull не удался (есть локальные правки?)"; return 1; }
+		chmod +x "$self" 2>/dev/null || true
+		ok "Менеджер обновлён — перезапусти меню"
+		return 0
+	fi
+	command -v curl >/dev/null 2>&1 || die "Нужен curl (pkg install curl)"
+	url="https://raw.githubusercontent.com/afis297/tg-ws-proxy-manager/main/tg-ws-proxy-manager.sh"
+	tmp="${self}.new"
+	msg "Качаю свежий менеджер..."
+	curl -fsSL --max-time 60 "$url" -o "$tmp" || { err "Не скачалось — проверь интернет"; rm -f "$tmp"; return 1; }
+	[ -s "$tmp" ] || { err "Скачался пустой файл"; rm -f "$tmp"; return 1; }
+	bash -n "$tmp" 2>/dev/null || { err "Скачанный файл битый — не ставлю"; rm -f "$tmp"; return 1; }
+	mv "$tmp" "$self"
+	chmod +x "$self" 2>/dev/null || true
+	ok "Менеджер обновлён: $self"
+	msg "Перезапусти меню, чтобы подхватить новую версию"
+}
+
 # Полная переустановка репы. Конфиг лежит вне репы, поэтому не теряется.
 cmd_reinstall() {
 	check_termux; load_config
@@ -2679,7 +2704,8 @@ cmd_profile_use()     { load_config; profile_apply "${1:-}"; }
 
 readonly COMMANDS=(
 	"install|cmd_install|Установка|скачать и настроить проект"
-	"update|cmd_update|Установка|обновить до свежего коммита"
+	"update|cmd_update|Установка|обновить ядро до свежего коммита"
+	"self-update|cmd_self_update|Установка|обновить сам менеджер"
 	"reinstall|cmd_reinstall|Установка|переустановить (secret сохраняется)"
 	"uninstall|cmd_uninstall|Установка|удалить проект"
 	"storage|cmd_storage|Установка|дать доступ к памяти телефона"
