@@ -1,0 +1,4 @@
+# Bash-скрипт обязан оставаться с LF: CRLF ломает шебанг и heredoc на Termux
+*.sh text eol=lf
+*.md text eol=lf
+*.json text eol=lf

@@ -1,0 +1,19 @@
+# Локальный тулчейн, не для публикации
+opencode.json
+
+# Мусор Termux/состояния — в репо ему не место
+*.log
+*.backup
+*.conf.bak
+tg-ws-proxy-backup-*.conf
+.before-restore.conf
+current_profile
+update_state
+job.enabled
+manual_stop
+
+# Редакторы и ОС
+*~
+*.swp
+.DS_Store
+Thumbs.db
